@@ -35,4 +35,5 @@ executable('desmume',
 )
 
 install_data('desmume.desktop', install_dir: get_option('datadir') / 'applications')
-install_data('DeSmuME.xpm', install_dir: get_option('datadir') / 'pixmaps')
+install_data('DeSmuME.svg', install_dir: get_option('datadir') / 'pixmaps')
+install_data('doc/desmume.1', install_dir: get_option('datadir') / 'man' / 'man1')

@@ -88,8 +88,6 @@
 
 #include "config.h"
 
-#include "DeSmuME.xpm"
-
 #undef GPOINTER_TO_INT
 #define GPOINTER_TO_INT(p) ((gint)  (glong) (p))
 
@@ -105,6 +103,11 @@ extern int _scanline_filter_a, _scanline_filter_b, _scanline_filter_c, _scanline
 VideoFilter* video;
 
 desmume::config::Config config;
+
+#ifdef GDB_STUB
+gdbstub_handle_t arm9_gdb_stub = NULL;
+gdbstub_handle_t arm7_gdb_stub = NULL;
+#endif
 
 enum {
     MAIN_BG_0 = 0,
@@ -1515,8 +1518,6 @@ static inline void UpdateStatusBar (const char *message)
 
 static void About(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-    GdkPixbuf * pixbuf = gdk_pixbuf_new_from_xpm_data(DeSmuME_xpm);
-
     static const gchar *authors[] = {
     	"yopyop (original author)",
     	"DeSmuME team",
@@ -1527,12 +1528,10 @@ static void About(GSimpleAction *action, GVariant *parameter, gpointer user_data
             "program-name", "DeSmuME",
             "version", EMU_DESMUME_VERSION_STRING() + 1, // skip space
             "website", "http://desmume.org",
-            "logo", pixbuf,
+            "logo-icon-name", "DeSmuME",
             "comments", "Nintendo DS emulator based on work by Yopyop",
             "authors", authors,
             NULL);
-
-    g_object_unref(pixbuf);
 }
 
 static void ToggleMenuVisible(GSimpleAction *action, GVariant *parameter, gpointer user_data)
@@ -2143,7 +2142,14 @@ static void SetWinsize(GSimpleAction *action, GVariant *parameter, gpointer user
 static void SetOrientation(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
     const char *string = g_variant_get_string(parameter, NULL);
-    nds_screen.orientation = (orientation_enum)g_ascii_strtoll(string, NULL, 10);
+	orientation_enum orient=ORIENT_VERTICAL;
+	if(strcmp(string, "vertical") == 0)
+		orient = ORIENT_VERTICAL;
+	else if(strcmp(string, "horizontal") == 0)
+		orient = ORIENT_HORIZONTAL;
+	else if(strcmp(string, "single") == 0)
+		orient = ORIENT_SINGLE;
+    nds_screen.orientation = orient;
 #ifdef HAVE_LIBAGG
     osd->singleScreen = nds_screen.orientation == ORIENT_SINGLE;
 #endif
@@ -3863,10 +3869,7 @@ common_gtk_main(GApplication *app, gpointer user_data)
      */
 #ifdef GDB_STUB
     gdbstub_mutex_init();
-    
-    gdbstub_handle_t arm9_gdb_stub = NULL;
-    gdbstub_handle_t arm7_gdb_stub = NULL;
-    
+
     if ( my_config->arm9_gdb_port > 0) {
         arm9_gdb_stub = createStub_gdb( my_config->arm9_gdb_port,
                                          &NDS_ARM9,
@@ -3918,7 +3921,7 @@ common_gtk_main(GApplication *app, gpointer user_data)
     pWindow = gtk_application_window_new(GTK_APPLICATION(app));
     gtk_window_set_title(GTK_WINDOW(pWindow), "DeSmuME");
     gtk_window_set_resizable(GTK_WINDOW (pWindow), TRUE);
-    gtk_window_set_icon(GTK_WINDOW (pWindow), gdk_pixbuf_new_from_xpm_data(DeSmuME_xpm));
+    gtk_window_set_icon_name(GTK_WINDOW (pWindow), "DeSmuME");
 
     g_signal_connect(G_OBJECT(pWindow), "destroy", G_CALLBACK(DoQuit), NULL);
     g_signal_connect(G_OBJECT(pWindow), "key_press_event", G_CALLBACK(Key_Press), NULL);
@@ -4443,6 +4446,18 @@ static void Teardown() {
 #endif
 }
 
+static void
+handle_open(GApplication *application,
+            GFile **files,
+            gint n_files,
+            const gchar *hint,
+            gpointer user_data)
+{
+    configured_features *my_config = static_cast<configured_features*>(user_data);
+    my_config->nds_file = g_file_get_path(files[0]);
+    common_gtk_main(application, user_data);
+}
+
 int main (int argc, char *argv[])
 {
   configured_features my_config;
@@ -4461,8 +4476,9 @@ int main (int argc, char *argv[])
     }
 
   // TODO: pass G_APPLICATION_HANDLES_COMMAND_LINE instead.
-  GtkApplication *app = gtk_application_new("org.desmume.DeSmuME", G_APPLICATION_FLAGS_NONE);
+  GtkApplication *app = gtk_application_new("org.desmume.DeSmuME", G_APPLICATION_HANDLES_OPEN);
   g_signal_connect (app, "activate", G_CALLBACK(common_gtk_main), &my_config);
+  g_signal_connect (app, "open", G_CALLBACK(handle_open), &my_config);
   g_action_map_add_action_entries(G_ACTION_MAP(app),
                                   app_entries, G_N_ELEMENTS(app_entries),
                                   app);
